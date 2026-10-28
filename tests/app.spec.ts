@@ -1,0 +1,95 @@
+import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
+
+async function enterReading(page: Page, period: string, values = ['123', '78', '68']) {
+  await page.getByRole('button', { name: `记录${period}血压`, exact: true }).click()
+  for (const [index, label] of ['高压', '低压', '心率'].entries()) await page.getByRole('spinbutton', { name: label, exact: true }).fill(values[index])
+  await page.getByRole('button', { name: '保存记录', exact: true }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+}
+
+test('morning and evening CRUD persists, validation prevents invalid records', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('./')
+  await enterReading(page, '早晨')
+  await enterReading(page, '晚间', ['118', '75', '72'])
+  await page.reload()
+  await expect(page.locator('.status-pill.recorded')).toHaveCount(2)
+  await expect(page.locator('.reading-card.morning')).toContainText('123')
+  await page.locator('.reading-card.morning').getByRole('button', { name: '编辑记录' }).click()
+  await page.getByRole('spinbutton', { name: '高压', exact: true }).fill('60')
+  await page.getByRole('button', { name: '保存记录', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('高压必须大于低压')
+  await page.getByRole('spinbutton', { name: '高压', exact: true }).fill('126')
+  await page.getByRole('button', { name: '保存记录', exact: true }).click()
+  await expect(page.locator('.reading-card.morning')).toContainText('126')
+  await page.getByRole('button', { name: '历史记录', exact: true }).click()
+  await expect(page.locator('tbody tr')).toHaveCount(2)
+  await page.getByRole('button', { name: '早晨', exact: true }).click()
+  await expect(page.locator('tbody tr')).toHaveCount(1)
+  await page.locator('tbody').getByRole('button').click()
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  await page.getByRole('button', { name: '全部', exact: true }).click()
+  await expect(page.locator('tbody tr')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('backup export, import, trends and responsive layout', async ({ page }, testInfo) => {
+  const remoteRequests: string[] = []
+  page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:4173') && !request.url().startsWith('blob:')) remoteRequests.push(request.url()) })
+  await page.goto('./')
+  await enterReading(page, '早晨')
+  await page.getByRole('button', { name: '备份与应用信息', exact: true }).first().click()
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: '导出备份', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/\.json$/)
+  const date = await page.locator('#record-date').inputValue()
+  const dates = [0, 1, 2, 4, 5, 6].map(offset => { const day = new Date(`${date}T12:00:00`); day.setDate(day.getDate() - offset); return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}` })
+  const readings = dates.flatMap((date, index) => ['morning', 'evening'].map(period => ({ date, period, systolic: 119 + index * 2 + (period === 'evening' ? 3 : 0), diastolic: 76 + index, pulse: 65 + index, updatedAt: new Date().toISOString() })))
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByLabel('导入备份文件').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'chenxi-bp', version: 1, readings })) })
+  await expect(page.getByRole('status')).toContainText('已导入 12 条记录')
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '趋势统计', exact: true }).click()
+  await expect(page.locator('.recharts-wrapper')).toHaveCount(3)
+  await expect(page.locator('.summary-item').first()).toContainText('126')
+  await page.getByRole('button', { name: '心率', exact: true }).click()
+  await expect(page.locator('.comparison')).toContainText('次/分钟')
+  await page.getByRole('button', { name: '自定义', exact: true }).click()
+  await expect(page.getByLabel('开始', { exact: true })).toBeVisible()
+  for (const width of testInfo.project.name === 'iphone' ? [320, 390, 430] : [768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && [...document.querySelectorAll('.recharts-wrapper')].every(element => element.getBoundingClientRect().width <= element.closest('.chart-wrap')!.getBoundingClientRect().width + 1))).toBe(true)
+  }
+  await page.screenshot({ path: testInfo.outputPath('trends.png'), fullPage: true })
+  await page.getByRole('button', { name: '今日记录', exact: true }).click()
+  await page.screenshot({ path: testInfo.outputPath('today.png'), fullPage: true })
+  expect(remoteRequests).toEqual([])
+})
+
+test('PWA manifest is scoped correctly and offline reload can save records', async ({ page, context, browserName, baseURL }) => {
+  test.skip(browserName === 'webkit', 'Playwright WebKit 不支持可靠的离线网络模拟；另有 WebKit 交互测试')
+  await page.goto('./')
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready
+    if (!navigator.serviceWorker.controller) await new Promise<void>(resolve => navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }))
+  })
+  const manifestUrl = await page.locator('link[rel="manifest"]').getAttribute('href')
+  const response = await context.request.get(new URL(manifestUrl!, baseURL!).href)
+  const manifest = await response.json()
+  expect(manifest.display).toBe('standalone')
+  expect(manifest.start_url).toBe(new URL(baseURL!).pathname)
+  await enterReading(page, '早晨')
+  await context.setOffline(true)
+  await page.reload()
+  await expect(page.locator('.reading-card.morning')).toContainText('123')
+  await expect(page.locator('.online-state')).toContainText('离线模式')
+  await enterReading(page, '晚间', ['117', '74', '70'])
+  await page.reload()
+  await expect(page.locator('.status-pill.recorded')).toHaveCount(2)
+  await context.setOffline(false)
+})

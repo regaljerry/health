@@ -1,0 +1,20 @@
+@font-face { font-family: 'Chenxi Text'; src: local('PingFang SC'), local('Microsoft YaHei'); font-display: swap; }
+:root { font-family: 'Chenxi Text', 'Noto Sans CJK SC', sans-serif; color: #273d35; background: #f7f9f8; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; --green: #187d68; --muted: #7a8780; --line: #e4eae6; --evening: #3974a2; --evening-light: #93bad5; --evening-soft: #edf5fc; --evening-border: #d5e5f2; letter-spacing: 0; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, select { font: inherit; }
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+button, input { outline-offset: 4px; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--green); }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; background: transparent; color: inherit; }
+input { min-width: 0; border: 1px solid #dce4df; border-radius: 6px; background: #fff; color: #273d35; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 30px; font-weight: 650; line-height: 1.4; }
+h2 { font-size: 17px; font-weight: 650; }
+h3 { font-size: 14px; font-weight: 600; }
+small { font-size: 12px; }
+a { color: inherit; text-decoration: none; }
+svg { flex-shrink: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
