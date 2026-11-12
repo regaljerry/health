@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createBackup, parseBackup, validateReading, mergeReadings, summarize, dateRange, localDate } from '../src/data.ts'
+import { createBackup, createCsv, parseBackup, validateReading, mergeReadings, summarize, dateRange, localDate } from '../src/data.ts'
 
 const reading = { date: '2026-01-02', period: 'morning', systolic: 120, diastolic: 80, pulse: 70, updatedAt: '2026-01-02T08:00:00Z' }
 
@@ -19,6 +19,10 @@ test('one entry per date and period, replacement preserves the other period', ()
 
 test('versioned backup round trip and invalid import rejection', () => {
   assert.deepEqual(parseBackup(createBackup([reading])), [reading])
+  const withNote = { ...reading, note: '早餐后，感觉良好\n继续观察' }
+  assert.deepEqual(parseBackup(createBackup([withNote])), [withNote])
+  assert.throws(() => parseBackup(createBackup([{ ...reading, note: 123 }])))
+  assert.throws(() => parseBackup(createBackup([{ ...reading, note: 'a'.repeat(501) }])))
   assert.throws(() => parseBackup('{"readings":[]}'))
   assert.throws(() => parseBackup(createBackup([{ ...reading, pulse: -1 }])))
 })
@@ -31,4 +35,11 @@ test('summary uses only actual readings and empty data is not zero', () => {
 test('date range includes missing days and handles month boundary', () => {
   assert.deepEqual(dateRange('2026-01-31', '2026-02-02'), ['2026-01-31', '2026-02-01', '2026-02-02'])
   assert.equal(localDate(new Date(2026, 0, 2, 0, 1)), '2026-01-02')
+})
+
+test('CSV preserves notes with commas, quotes and newlines and neutralizes spreadsheet formulas', () => {
+  const csv = createCsv([{ ...reading, note: '早餐, "咖啡"\n正常' }, { ...reading, note: ' =1+1' }, reading])
+  assert.match(csv, /"早餐, ""咖啡""\n正常"/)
+  assert.match(csv, /"' =1\+1"/)
+  assert.ok(csv.endsWith(',""'))
 })

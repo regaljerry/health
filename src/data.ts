@@ -5,6 +5,7 @@ export type Reading = {
   systolic: number
   diastolic: number
   pulse: number
+  note?: string
   updatedAt: string
 }
 
@@ -31,6 +32,7 @@ export function validateReading(value: unknown): asserts value is Reading {
     if (!Number.isInteger(number) || number < min || number > max) throw new Error(`${label}须为 ${min}–${max} 之间的整数`)
   }
   if (reading.systolic <= reading.diastolic) throw new Error('高压必须大于低压，请核对输入')
+  if (reading.note !== undefined && (typeof reading.note !== 'string' || reading.note.length > 500)) throw new Error('备注须为 500 字以内的文字')
   if (typeof reading.updatedAt !== 'string' || Number.isNaN(Date.parse(reading.updatedAt))) throw new Error('记录更新时间无效')
 }
 
@@ -56,6 +58,14 @@ export function parseBackup(text: string): Reading[] {
 
 export function createBackup(readings: Reading[]): string {
   return JSON.stringify({ app: 'chenxi-bp', version: 1, exportedAt: new Date().toISOString(), readings }, null, 2)
+}
+
+export function createCsv(readings: Reading[]): string {
+  const csvNote = (note: string) => {
+    const safe = /^[\s]*[=+\-@\t\r]/.test(note) ? `'${note}` : note
+    return `"${safe.replaceAll('"', '""')}"`
+  }
+  return '\uFEFF日期,时段,高压(mmHg),低压(mmHg),心率(次/分钟),备注\r\n' + readings.map(reading => `${reading.date},${reading.period === 'morning' ? '早晨' : '晚间'},${reading.systolic},${reading.diastolic},${reading.pulse},${csvNote(reading.note ?? '')}`).join('\r\n')
 }
 
 export function summarize(readings: Reading[], metric: 'systolic' | 'diastolic' | 'pulse') {

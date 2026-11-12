@@ -1,12 +1,36 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
-async function enterReading(page: Page, period: string, values = ['123', '78', '68']) {
+async function enterReading(page: Page, period: string, values = ['123', '78', '68'], note = '') {
   await page.getByRole('button', { name: `记录${period}血压`, exact: true }).click()
   for (const [index, label] of ['高压', '低压', '心率'].entries()) await page.getByRole('spinbutton', { name: label, exact: true }).fill(values[index])
+  if (note) await page.getByLabel('备注').fill(note)
   await page.getByRole('button', { name: '保存记录', exact: true }).click()
   await expect(page.getByRole('dialog')).not.toBeVisible()
 }
+
+test('notes are independent, editable, and persist after reload', async ({ page }) => {
+  await page.goto('./')
+  await enterReading(page, '早晨', ['123', '78', '68'], '早晨：早餐前\n休息后测量')
+  await enterReading(page, '晚间', ['118', '75', '72'], '晚间：晚饭后')
+  await page.reload()
+  await expect(page.locator('.reading-card.morning .reading-note')).toHaveText('备注早晨：早餐前\n休息后测量')
+  await expect(page.locator('.reading-card.evening .reading-note')).toContainText('晚间：晚饭后')
+  await page.locator('.reading-card.morning').getByRole('button', { name: '编辑记录' }).click()
+  await expect(page.getByLabel('备注')).toHaveValue('早晨：早餐前\n休息后测量')
+  await page.getByLabel('备注').fill('已修改')
+  await page.getByRole('button', { name: '保存记录', exact: true }).click()
+  await expect(page.locator('.reading-card.morning .reading-note')).toContainText('已修改')
+  await page.getByRole('button', { name: '历史记录', exact: true }).click()
+  await expect(page.locator('tbody')).toContainText('已修改')
+  await expect(page.locator('tbody')).toContainText('晚间：晚饭后')
+  await page.getByRole('button', { name: /编辑 .* 晚间/ }).click()
+  await page.getByLabel('备注').fill('')
+  await page.getByRole('button', { name: '保存记录', exact: true }).click()
+  await page.reload()
+  await expect(page.locator('.reading-card.morning .reading-note')).toContainText('已修改')
+  await expect(page.locator('.reading-card.evening .reading-note')).toHaveCount(0)
+})
 
 test('morning and evening CRUD persists, validation prevents invalid records', async ({ page }) => {
   const errors: string[] = []
